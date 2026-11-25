@@ -22,12 +22,6 @@ services:
       - key: NODE_ENV
         value: production
       - key: NEXT_PUBLIC_API_URL
-        fromService:
-          type: web
-          name: soundsync-server
-          property: host
+        value: https://soundsync-server.onrender.com
       - key: NEXT_PUBLIC_WS_URL
-        fromService:
-          type: web
-          name: soundsync-server
-          property: host
+        value: wss://soundsync-server.onrender.com/ws
