@@ -16,7 +16,7 @@ services:
     name: soundsync-client
     runtime: node
     plan: free
-    buildCommand: npm install -g bun && bun install --ignore-scripts && bun run --cwd apps/client build
+    buildCommand: bun install --ignore-scripts && bun run --cwd apps/client build
     startCommand: npm --prefix apps/client run start
     envVars:
       - key: NODE_ENV
