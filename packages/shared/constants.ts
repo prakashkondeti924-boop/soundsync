@@ -1,5 +1,37 @@
 export const R2_AUDIO_FILE_NAME_DELIMITER = "___";
 
+export const UPLOAD_CONSTANTS = {
+  MAX_FILE_SIZE_BYTES: 100 * 1024 * 1024, // 100 MB
+  LOCAL_UPLOADS_PATH_PREFIX: "/uploads",
+  ALLOWED_AUDIO_EXTENSIONS: [
+    ".mp3",
+    ".wav",
+    ".flac",
+    ".m4a",
+    ".aac",
+    ".ogg",
+    ".webm",
+    ".opus",
+  ] as const,
+  ALLOWED_AUDIO_MIME_TYPES: [
+    "audio/mpeg",
+    "audio/mp3",
+    "audio/wav",
+    "audio/x-wav",
+    "audio/wave",
+    "audio/flac",
+    "audio/x-flac",
+    "audio/mp4",
+    "audio/x-m4a",
+    "audio/m4a",
+    "audio/aac",
+    "audio/ogg",
+    "audio/webm",
+    "audio/opus",
+    "video/webm",
+  ] as const,
+} as const;
+
 const STEADY_STATE_INTERVAL_MS = 2500;
 
 // NTP Heartbeat Constants

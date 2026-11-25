@@ -1,5 +1,6 @@
 import { cn } from "@/lib/utils";
 import { motion } from "motion/react";
+import { LocalSongsPanel } from "../LocalSongsPanel";
 import { Queue } from "../Queue";
 import { InlineSearch } from "./InlineSearch";
 
@@ -11,10 +12,13 @@ export const Main = () => {
         "scrollbar-thin scrollbar-thumb-rounded-md scrollbar-thumb-muted-foreground/10 scrollbar-track-transparent hover:scrollbar-thumb-muted-foreground/20"
       )}
     >
-      <motion.div className="p-6 pt-4">
+      <motion.div className="p-4 sm:p-6 pt-4">
         {/* <h1 className="text-xl font-semibold mb-8">BeatSync</h1> */}
-        <div className="mb-6">
+        <div className="mb-4">
           <InlineSearch />
+        </div>
+        <div className="mb-5">
+          <LocalSongsPanel />
         </div>
         <Queue className="mb-8" />
       </motion.div>

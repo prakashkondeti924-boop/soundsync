@@ -1,6 +1,7 @@
 import { calculateScheduleTimeMs, DEFAULT_CLIENT_RTT_MS } from "@/config";
 import { IS_DEMO_MODE } from "@/demo";
-import { deleteObjectsWithPrefix } from "@/lib/r2";
+import { deleteLocalRoomDirectory } from "@/lib/localStorage";
+import { deleteObjectsWithPrefix, validateR2Config } from "@/lib/r2";
 import { ChatManager } from "@/managers/ChatManager";
 import { calculateGainFromDistanceToSource } from "@/spatial";
 import { debounce } from "@/utils/debounce";
@@ -1050,11 +1051,27 @@ export class RoomManager {
     this.stopHeartbeatChecking();
 
     if (!IS_DEMO_MODE) {
+      if (this.hasActiveConnections()) {
+        console.log(`Skipping file cleanup for room ${this.roomId}: active connections still present`);
+        return;
+      }
+
       try {
-        const result = await deleteObjectsWithPrefix(`room-${this.roomId}`);
-        console.log(`✅ Room ${this.roomId} objects deleted: ${result.deletedCount}`);
+        const localDeleted = await deleteLocalRoomDirectory(this.roomId);
+        if (localDeleted > 0) {
+          console.log(`✅ Room ${this.roomId} local files deleted: ${localDeleted}`);
+        }
       } catch (error) {
-        console.error(`❌ Room ${this.roomId} cleanup failed:`, error);
+        console.error(`❌ Room ${this.roomId} local cleanup failed:`, error);
+      }
+
+      if (validateR2Config().isValid) {
+        try {
+          const result = await deleteObjectsWithPrefix(`room-${this.roomId}`);
+          console.log(`✅ Room ${this.roomId} objects deleted: ${result.deletedCount}`);
+        } catch (error) {
+          console.error(`❌ Room ${this.roomId} cleanup failed:`, error);
+        }
       }
     }
   }

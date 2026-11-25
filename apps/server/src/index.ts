@@ -1,22 +1,27 @@
 import { ADMIN_SECRET, IS_DEMO_MODE } from "@/demo";
+import { cleanupOrphanedLocalRooms, getStorageMode } from "@/lib/localStorage";
+import { validateR2Config } from "@/lib/r2";
+import { globalManager } from "@/managers";
 import { BackupManager } from "@/managers/BackupManager";
 import { getActiveRooms } from "@/routes/active";
 import { handleGetDefaultAudio } from "@/routes/default";
 import { handleServeAudio } from "@/routes/demoAudio";
 import { handleDiscover } from "@/routes/discover";
 import { handleHealth } from "@/routes/health";
+import { handleServeLocalAudio } from "@/routes/localAudio";
 import { handleRoot } from "@/routes/root";
 import { handleStats } from "@/routes/stats";
-import { handleGetPresignedURL, handleUploadComplete } from "@/routes/upload";
+import { handleGetPresignedURL, handleGetUploadConfig, handleLocalUpload, handleUploadComplete } from "@/routes/upload";
 import { handleWebSocketUpgrade } from "@/routes/websocket";
 import { handleClose, handleMessage, handleOpen } from "@/routes/websocketHandlers";
 import { corsHeaders, errorResponse } from "@/utils/responses";
 import type { WSData } from "@/utils/websocket";
+import { UPLOAD_CONSTANTS } from "@beatsync/shared";
 
 // Bun.serve with WebSocket support
 const server = Bun.serve<WSData>({
   hostname: "0.0.0.0",
-  port: 8080,
+  port: Number(process.env.PORT) || 8080,
   async fetch(req, server) {
     const start = performance.now();
     const url = new URL(req.url);
@@ -32,6 +37,8 @@ const server = Bun.serve<WSData>({
       // Demo mode: serve local audio files
       if (IS_DEMO_MODE && url.pathname.startsWith("/audio/")) {
         response = handleServeAudio(url.pathname);
+      } else if (!IS_DEMO_MODE && url.pathname.startsWith(`${UPLOAD_CONSTANTS.LOCAL_UPLOADS_PATH_PREFIX}/`)) {
+        response = await handleServeLocalAudio(req, url.pathname);
       } else {
         switch (url.pathname) {
           case "/":
@@ -40,6 +47,18 @@ const server = Bun.serve<WSData>({
 
           case "/ws":
             return handleWebSocketUpgrade(req, server);
+
+          case "/upload/config":
+            response = handleGetUploadConfig(req);
+            break;
+
+          case "/upload/local":
+            if (IS_DEMO_MODE) {
+              response = errorResponse("Uploads disabled in demo mode", 403);
+            } else {
+              response = await handleLocalUpload(req, server);
+            }
+            break;
 
           case "/upload/get-presigned-url":
             if (IS_DEMO_MODE) {
@@ -112,26 +131,35 @@ const server = Bun.serve<WSData>({
   },
 });
 
-console.log(`HTTP listening on http://${server.hostname}:${server.port}`);
+console.log(`HTTP listening on http://${server.hostname}:${server.port} (storage mode: ${getStorageMode()})`);
 
 if (IS_DEMO_MODE) {
   console.log(`🔑 Admin secret: ${ADMIN_SECRET}`);
 }
 
-if (!IS_DEMO_MODE) {
-  // Restore state from backup on startup
-  BackupManager.restoreState().catch((error) => {
-    console.error("Failed to restore state on startup:", error);
-  });
+const isR2Configured = validateR2Config().isValid;
 
-  // Set up periodic backups every minute (for Render persistence issues)
-  const BACKUP_INTERVAL_MS = 60 * 1000; // 1 minute
-  setInterval(() => {
-    console.log("🔄 Performing periodic backup at", new Date().toISOString());
-    BackupManager.backupState().catch((error) => {
-      console.error("Failed to perform periodic backup:", error);
+if (!IS_DEMO_MODE) {
+  if (isR2Configured) {
+    // Restore state from backup on startup
+    BackupManager.restoreState().catch((error) => {
+      console.error("Failed to restore state on startup:", error);
     });
-  }, BACKUP_INTERVAL_MS);
+
+    // Set up periodic backups every minute (for Render persistence issues)
+    const BACKUP_INTERVAL_MS = 60 * 1000; // 1 minute
+    setInterval(() => {
+      console.log("🔄 Performing periodic backup at", new Date().toISOString());
+      BackupManager.backupState().catch((error) => {
+        console.error("Failed to perform periodic backup:", error);
+      });
+    }, BACKUP_INTERVAL_MS);
+  } else {
+    console.log("📁 R2 not configured — running with local disk upload storage");
+    cleanupOrphanedLocalRooms(new Set(globalManager.getRoomIds())).catch((error) => {
+      console.error("Failed to clean up orphaned local rooms on startup:", error);
+    });
+  }
 }
 
 // Simple graceful shutdown
@@ -139,7 +167,7 @@ const shutdown = async () => {
   console.log("\n⚠️ Shutting down...");
 
   void server.stop(); // Stop accepting new connections
-  if (!IS_DEMO_MODE) {
+  if (!IS_DEMO_MODE && isR2Configured) {
     await BackupManager.backupState(); // Save state
   }
 

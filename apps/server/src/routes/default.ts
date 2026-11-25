@@ -1,10 +1,10 @@
 import { IS_DEMO_MODE } from "@/demo";
-import { listObjectsWithPrefix } from "@/lib/r2";
+import { listObjectsWithPrefix, validateR2Config } from "@/lib/r2";
 import { errorResponse, jsonResponse } from "@/utils/responses";
 import type { GetDefaultAudioType } from "@beatsync/shared";
 
 export async function handleGetDefaultAudio(_req: Request) {
-  if (IS_DEMO_MODE) return jsonResponse([]);
+  if (IS_DEMO_MODE || !validateR2Config().isValid) return jsonResponse([]);
 
   try {
     // List all objects with "default/" prefix

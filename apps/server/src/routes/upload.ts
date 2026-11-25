@@ -1,5 +1,17 @@
-import type { UploadCompleteResponseType, UploadUrlResponseType } from "@beatsync/shared";
-import { GetUploadUrlSchema, UploadCompleteSchema } from "@beatsync/shared";
+import type {
+  LocalUploadResponseType,
+  UploadCompleteResponseType,
+  UploadConfigResponseType,
+  UploadUrlResponseType,
+} from "@beatsync/shared";
+import {
+  GetUploadUrlSchema,
+  isValidRoomIdParam,
+  UPLOAD_CONSTANTS,
+  UploadCompleteSchema,
+  validateAudioUploadMetadata,
+} from "@beatsync/shared";
+import { getStorageMode, saveLocalAudioFile } from "@/lib/localStorage";
 import type { BunServer } from "@/utils/websocket";
 import {
   createKey,
@@ -10,6 +22,89 @@ import {
 } from "@/lib/r2";
 import { globalManager } from "@/managers";
 import { errorResponse, jsonResponse, sendBroadcast } from "@/utils/responses";
+
+export const handleGetUploadConfig = (req: Request) => {
+  if (req.method !== "GET") {
+    return errorResponse("Method not allowed", 405);
+  }
+
+  const response: UploadConfigResponseType = {
+    mode: getStorageMode(),
+    maxFileSizeBytes: UPLOAD_CONSTANTS.MAX_FILE_SIZE_BYTES,
+    allowedExtensions: [...UPLOAD_CONSTANTS.ALLOWED_AUDIO_EXTENSIONS],
+  };
+
+  return jsonResponse(response);
+};
+
+export const handleLocalUpload = async (req: Request, server: BunServer) => {
+  try {
+    if (req.method !== "POST") {
+      return errorResponse("Method not allowed", 405);
+    }
+
+    const contentType = req.headers.get("content-type") ?? "";
+    if (!contentType.includes("multipart/form-data")) {
+      return errorResponse("Content-Type must be multipart/form-data", 400);
+    }
+
+    const formData = await req.formData();
+    const roomIdValue = formData.get("roomId");
+    const fileValue = formData.get("file");
+
+    if (typeof roomIdValue !== "string" || !isValidRoomIdParam(roomIdValue)) {
+      return errorResponse("Invalid roomId", 400);
+    }
+
+    if (!(fileValue instanceof File)) {
+      return errorResponse("Audio file is required", 400);
+    }
+
+    const room = globalManager.getRoom(roomIdValue);
+    if (!room) {
+      return errorResponse("Room not found. Please join the room before uploading files.", 404);
+    }
+
+    const validation = validateAudioUploadMetadata({
+      fileName: fileValue.name,
+      mimeType: fileValue.type,
+      size: fileValue.size,
+    });
+    if (!validation.valid) {
+      return errorResponse(validation.error ?? "Invalid audio file", 400);
+    }
+
+    const uniqueFileName = generateAudioFileName(fileValue.name);
+    const bytes = await fileValue.arrayBuffer();
+    const { url } = await saveLocalAudioFile(roomIdValue, uniqueFileName, bytes);
+
+    const sources = room.addAudioSource({ url });
+
+    console.log(`✅ Local audio upload completed - room ${roomIdValue}: ${url}`);
+
+    sendBroadcast({
+      server,
+      roomId: roomIdValue,
+      message: {
+        type: "ROOM_EVENT",
+        event: {
+          type: "SET_AUDIO_SOURCES",
+          sources,
+        },
+      },
+    });
+
+    const response: LocalUploadResponseType = {
+      success: true,
+      url,
+      fileName: uniqueFileName,
+    };
+    return jsonResponse(response);
+  } catch (error) {
+    console.error("Error handling local upload:", error);
+    return errorResponse("Failed to upload audio file", 500);
+  }
+};
 
 // New endpoint to get presigned upload URL
 export const handleGetPresignedURL = async (req: Request) => {

@@ -1,5 +1,5 @@
 import { IS_DEMO_MODE } from "@/demo";
-import { listObjectsWithPrefix } from "@/lib/r2";
+import { listObjectsWithPrefix, validateR2Config } from "@/lib/r2";
 import { sendBroadcast } from "@/utils/responses";
 import { requireCanMutate } from "@/websocket/middlewares";
 import type { HandlerFunction } from "@/websocket/types";
@@ -9,7 +9,7 @@ export const handleLoadDefaultTracks: HandlerFunction<ExtractWSRequestFrom["LOAD
   ws,
   server,
 }) => {
-  if (IS_DEMO_MODE) return;
+  if (IS_DEMO_MODE || !validateR2Config().isValid) return;
   const { room } = requireCanMutate(ws);
 
   // List default objects from R2 and map to public URLs

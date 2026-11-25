@@ -1,52 +1,35 @@
 "use client";
 
-import { uploadAudioFile } from "@/lib/api";
 import { cn, trimFileName } from "@/lib/utils";
 import { useCanMutate } from "@/store/global";
+import { useLocalLibraryStore } from "@/store/localLibrary";
 import { useRoomStore } from "@/store/room";
+import { UPLOAD_CONSTANTS } from "@beatsync/shared";
 import { CloudUpload, Plus } from "lucide-react";
 import { useState } from "react";
-import { toast } from "sonner";
+
+const FILE_ACCEPT = UPLOAD_CONSTANTS.ALLOWED_AUDIO_EXTENSIONS.join(",") + ",audio/*";
 
 export const AudioUploaderMinimal = () => {
   const [isDragging, setIsDragging] = useState(false);
-  const [isUploading, setIsUploading] = useState(false);
-  const [fileName, setFileName] = useState<string | null>(null);
   const canMutate = useCanMutate();
   const roomId = useRoomStore((state) => state.roomId);
+  const uploads = useLocalLibraryStore((state) => state.uploads);
+  const uploadFilesToRoom = useLocalLibraryStore((state) => state.uploadFilesToRoom);
 
   const isDisabled = !canMutate;
+  const activeUploads = uploads.filter((u) => u.status === "uploading");
+  const isUploading = activeUploads.length > 0;
+  const latestUpload = activeUploads[0] ?? uploads[0];
 
-  const handleFileUpload = async (file: File) => {
-    if (isDisabled) return;
-
-    // Store file name for display
-    setFileName(file.name);
-
-    try {
-      setIsUploading(true);
-
-      // Upload the file to the server as binary
-      await uploadAudioFile({
-        file,
-        roomId,
-      });
-
-      setTimeout(() => setFileName(null), 3000);
-    } catch (err) {
-      console.error("Error during upload:", err);
-      toast.error("Failed to upload audio file");
-      setFileName(null);
-    } finally {
-      setIsUploading(false);
-    }
+  const handleFiles = (fileList: FileList | null) => {
+    if (isDisabled || !fileList || fileList.length === 0) return;
+    void uploadFilesToRoom(Array.from(fileList), roomId);
   };
 
   const onInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    if (isDisabled) return;
-    const file = event.target.files?.[0];
-    if (!file) return;
-    handleFileUpload(file);
+    handleFiles(event.target.files);
+    event.target.value = "";
   };
 
   const onDragOver = (event: React.DragEvent<HTMLDivElement>) => {
@@ -68,16 +51,7 @@ export const AudioUploaderMinimal = () => {
     event.preventDefault();
     event.stopPropagation();
     setIsDragging(false);
-
-    const file = event.dataTransfer?.files?.[0];
-    if (!file) return;
-    // make sure we only allow audio files
-    if (!file.type.startsWith("audio/")) {
-      toast.error("Please select an audio file");
-      return;
-    }
-
-    handleFileUpload(file);
+    handleFiles(event.dataTransfer?.files ?? null);
   };
 
   return (
@@ -106,11 +80,13 @@ export const AudioUploaderMinimal = () => {
           </div>
           <div className="flex-1 min-w-0">
             <div className="text-xs font-medium text-white truncate">
-              {isUploading ? "Uploading..." : fileName ? trimFileName(fileName) : "Upload audio"}
+              {isUploading
+                ? `Uploading ${activeUploads.length > 1 ? `${activeUploads.length} songs` : trimFileName(latestUpload.fileName)} (${latestUpload.progress}%)`
+                : "Upload local songs"}
             </div>
-            {!isUploading && !fileName && (
+            {!isUploading && (
               <div className={cn("text-xs truncate", isDisabled ? "text-neutral-500" : "text-neutral-400")}>
-                {isDisabled ? "Must be an admin to upload" : "Add music to queue"}
+                {isDisabled ? "Must be an admin to upload" : "Drop or pick MP3, WAV, FLAC, M4A"}
               </div>
             )}
           </div>
@@ -120,9 +96,10 @@ export const AudioUploaderMinimal = () => {
       <input
         id="audio-upload"
         type="file"
-        accept="audio/mpeg,audio/mp3,audio/wav,audio/aac,audio/ogg,audio/webm,audio/flac,.mp3,.wav,.m4a,.aac,.ogg,.webm,.flac"
+        multiple
+        accept={FILE_ACCEPT}
         onChange={onInputChange}
-        disabled={isUploading || isDisabled}
+        disabled={isDisabled}
         className="hidden"
       />
     </div>

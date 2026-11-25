@@ -10,6 +10,7 @@ import {
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { R2_AUDIO_FILE_NAME_DELIMITER } from "@beatsync/shared";
 import { config } from "dotenv";
+import { nanoid } from "nanoid";
 import sanitize from "sanitize-filename";
 
 config();
@@ -165,11 +166,12 @@ export function generateAudioFileName(originalName: string): string {
     safeName = "audio";
   }
 
-  // Generate timestamp with date and random component
+  // Generate timestamp with Windows-safe separators and random suffix to prevent collisions
   const now = new Date();
-  const dateStr = now.toISOString().replace(":", "-");
+  const dateStr = now.toISOString().replace(/:/g, "-");
+  const uniqueSuffix = nanoid(6);
 
-  return `${safeName}${R2_AUDIO_FILE_NAME_DELIMITER}${dateStr}.${extension}`;
+  return `${safeName}${R2_AUDIO_FILE_NAME_DELIMITER}${dateStr}-${uniqueSuffix}.${extension}`;
 }
 
 /**

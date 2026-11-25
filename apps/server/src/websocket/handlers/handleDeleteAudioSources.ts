@@ -1,5 +1,7 @@
 import { IS_DEMO_MODE } from "@/demo";
-import { deleteObject, extractKeyFromUrl } from "@/lib/r2";
+import { deleteLocalAudioFile, parseLocalAudioUrl } from "@/lib/localStorage";
+import { deleteObject, extractKeyFromUrl, validateR2Config } from "@/lib/r2";
+import { globalManager } from "@/managers";
 import { sendBroadcast } from "@/utils/responses";
 import { requireCanMutate } from "@/websocket/middlewares";
 import type { HandlerFunction } from "@/websocket/types";
@@ -40,12 +42,29 @@ export const handleDeleteAudioSources: HandlerFunction<ExtractWSRequestFrom["DEL
   // Track which URLs were successfully deleted from R2
   const successfullyDeletedUrls = new Set<string>();
   const roomPrefix = `/room-${ws.data.roomId}/`;
+  const isR2Configured = validateR2Config().isValid;
 
-  // Process R2 deletions and track successes
-  const r2DeletionPromises = urlsToDelete.map(async (url) => {
-    // Always add non-R2 URLs (like default tracks) to successful list
-    if (!url.includes(roomPrefix)) {
-      successfullyDeletedUrls.add(url); // Just say we've processed it
+  const deletionPromises = urlsToDelete.map(async (url) => {
+    const localParsed = parseLocalAudioUrl(url);
+    if (localParsed) {
+      if (localParsed.roomId === ws.data.roomId) {
+        const inUseElsewhere = globalManager
+          .getRooms()
+          .some(
+            ([otherRoomId, otherRoom]) =>
+              otherRoomId !== ws.data.roomId && otherRoom.getAudioSources().some((s) => s.url === url)
+          );
+        if (!inUseElsewhere) {
+          await deleteLocalAudioFile(localParsed.roomId, localParsed.fileName);
+        }
+      }
+      successfullyDeletedUrls.add(url);
+      return;
+    }
+
+    // Always add non-R2 URLs (like default tracks) or when R2 isn't configured
+    if (!url.includes(roomPrefix) || !isR2Configured) {
+      successfullyDeletedUrls.add(url);
       return;
     }
 
@@ -66,8 +85,8 @@ export const handleDeleteAudioSources: HandlerFunction<ExtractWSRequestFrom["DEL
     }
   });
 
-  // Wait for all R2 deletion attempts to complete
-  await Promise.all(r2DeletionPromises);
+  // Wait for all deletion attempts to complete
+  await Promise.all(deletionPromises);
 
   // Only remove successfully deleted URLs from the room's queue
   const urlsToRemove = Array.from(successfullyDeletedUrls);

@@ -46,6 +46,25 @@ export type UploadCompleteResponseType = z.infer<
   typeof UploadCompleteResponseSchema
 >;
 
+export const StorageModeSchema = z.enum(["r2", "local"]);
+export type StorageModeType = z.infer<typeof StorageModeSchema>;
+
+export const UploadConfigResponseSchema = z.object({
+  mode: StorageModeSchema,
+  maxFileSizeBytes: z.number(),
+  allowedExtensions: z.array(z.string()),
+});
+export type UploadConfigResponseType = z.infer<
+  typeof UploadConfigResponseSchema
+>;
+
+export const LocalUploadResponseSchema = z.object({
+  success: z.boolean(),
+  url: z.string(),
+  fileName: z.string(),
+});
+export type LocalUploadResponseType = z.infer<typeof LocalUploadResponseSchema>;
+
 // Audio fetch request (unchanged)
 export const GetAudioSchema = z.object({
   id: z.string(),

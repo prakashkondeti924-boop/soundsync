@@ -27,7 +27,10 @@ FROM oven/bun:1-slim AS runner
 WORKDIR /app/apps/server
 
 COPY --from=build /app/apps/server/dist ./dist
+RUN mkdir -p /app/apps/server/uploads
 
 EXPOSE 8080
 ENV NODE_ENV=production
+ENV PORT=8080
+ENV STORAGE_MODE=local
 CMD ["bun", "dist/index.js"]

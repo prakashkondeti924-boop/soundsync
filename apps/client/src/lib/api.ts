@@ -3,9 +3,12 @@ import {
   GetActiveRoomsType,
   GetDefaultAudioType,
   GetUploadUrlType,
+  LocalUploadResponseType,
   UploadCompleteResponseType,
   UploadCompleteType,
+  UploadConfigResponseType,
   UploadUrlResponseType,
+  validateAudioUploadMetadata,
 } from "@beatsync/shared";
 import axios from "axios";
 import { getApiUrl } from "./urls";
@@ -16,13 +19,59 @@ const baseAxios = axios.create({
   },
 });
 
-export const uploadAudioFile = async (data: { file: File; roomId: string }) => {
+let cachedUploadConfig: UploadConfigResponseType | null = null;
+
+export const fetchUploadConfig = async (forceRefresh = false): Promise<UploadConfigResponseType> => {
+  if (cachedUploadConfig && !forceRefresh) {
+    return cachedUploadConfig;
+  }
+
+  const response = await baseAxios.get<UploadConfigResponseType>("/upload/config");
+  cachedUploadConfig = response.data;
+  return response.data;
+};
+
+export const uploadAudioFile = async (data: { file: File; roomId: string; onProgress?: (percent: number) => void }) => {
+  const validation = validateAudioUploadMetadata({
+    fileName: data.file.name,
+    mimeType: data.file.type,
+    size: data.file.size,
+  });
+  if (!validation.valid) {
+    throw new Error(validation.error ?? "Invalid audio file");
+  }
+
   try {
+    const config = await fetchUploadConfig();
+
+    if (config.mode === "local") {
+      const formData = new FormData();
+      formData.append("roomId", data.roomId);
+      formData.append("file", data.file);
+
+      const response = await baseAxios.post<LocalUploadResponseType>("/upload/local", formData, {
+        onUploadProgress: (event) => {
+          if (event.total && data.onProgress) {
+            const percent = Math.min(100, Math.round((event.loaded / event.total) * 100));
+            data.onProgress(percent);
+          }
+        },
+      });
+
+      data.onProgress?.(100);
+      return {
+        success: response.data.success,
+        publicUrl: response.data.url,
+      };
+    }
+
+    const contentType = data.file.type || "audio/mpeg";
+
     // Step 1: Get presigned upload URL from server
     const uploadUrlRequest: GetUploadUrlType = {
       roomId: data.roomId,
       fileName: data.file.name,
-      contentType: data.file.type,
+      contentType,
     };
 
     const presignedURLResponse = await baseAxios.post<UploadUrlResponseType>(
@@ -33,17 +82,17 @@ export const uploadAudioFile = async (data: { file: File; roomId: string }) => {
     const { uploadUrl, publicUrl } = presignedURLResponse.data;
 
     // Step 2: Upload directly to R2 using presigned URL
-    const uploadResponse = await fetch(uploadUrl, {
-      method: "PUT",
-      body: data.file,
+    await axios.put(uploadUrl, data.file, {
       headers: {
-        "Content-Type": data.file.type,
+        "Content-Type": contentType,
+      },
+      onUploadProgress: (event) => {
+        if (event.total && data.onProgress) {
+          const percent = Math.min(99, Math.round((event.loaded / event.total) * 100));
+          data.onProgress(percent);
+        }
       },
     });
-
-    if (!uploadResponse.ok) {
-      throw new Error(`Upload failed: ${uploadResponse.statusText}`);
-    }
 
     // Step 3: Notify server that upload completed successfully
     const uploadCompleteRequest: UploadCompleteType = {
@@ -53,6 +102,7 @@ export const uploadAudioFile = async (data: { file: File; roomId: string }) => {
     };
 
     await baseAxios.post<UploadCompleteResponseType>("/upload/complete", uploadCompleteRequest);
+    data.onProgress?.(100);
 
     return {
       success: true,
@@ -60,7 +110,8 @@ export const uploadAudioFile = async (data: { file: File; roomId: string }) => {
     };
   } catch (error) {
     if (axios.isAxiosError(error)) {
-      throw new Error(error.response?.data?.message || "Failed to upload audio file");
+      const serverMsg = typeof error.response?.data === "string" ? error.response.data : error.response?.data?.message;
+      throw new Error(serverMsg || "Failed to upload audio file");
     }
     throw error;
   }
